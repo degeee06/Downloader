@@ -25,29 +25,31 @@ def sanitize_filename(name: str) -> str:
 
 def normalize_spotify_url(spotify_url: str) -> str:
     """
-    Remove prefixos regionais, ex: /intl-pt/, /br/, etc.
+    Remove prefixos regionais do Spotify, ex: /intl-pt/, /br/, etc.
     """
     return re.sub(r"open\.spotify\.com/[^/]+/track/", "open.spotify.com/track/", spotify_url)
 
 def get_track_info(spotify_url: str):
     spotify_url = normalize_spotify_url(spotify_url)
 
-    # Extrair o track_id com regex
+    # Extrair track_id com regex
     match = re.search(r"track/([A-Za-z0-9]+)", spotify_url)
     if not match:
         raise ValueError("Só aceito links de faixa do Spotify (open.spotify.com/track/...)")
 
     track_id = match.group(1)
 
-    # Buscar metadados
+    # Buscar metadados no Spotify
     t = sp.track(track_id)
     title = t.get("name", "Unknown Title")
-    artists = ", ".join([a["name"] for a in t.get("artists", [])]) or "Unknown Artist"
+    artists_list = [a["name"] for a in t.get("artists", [])]
+    # usa só o primeiro artista para melhorar busca no YouTube
+    artist = artists_list[0] if artists_list else "Unknown Artist"
     album = t.get("album", {}).get("name", "Unknown Album")
     images = t.get("album", {}).get("images", [])
     cover = images[0]["url"] if images else None
-    query = f"{artists} - {title}"
-    return {"title": title, "artists": artists, "album": album, "cover": cover, "query": query}
+    query = f"{artist} - {title}"
+    return {"title": title, "artists": artist, "album": album, "cover": cover, "query": query}
 
 def download_to_mp3_by_query(query: str) -> str:
     tempdir = tempfile.mkdtemp(prefix="ytmp3_")
@@ -56,7 +58,7 @@ def download_to_mp3_by_query(query: str) -> str:
         "format": "bestaudio/best",
         "outtmpl": outtmpl,
         "noplaylist": True,
-        "default_search": "ytsearch1",
+        "default_search": "ytsearch5",  # busca até 5 resultados
         "postprocessors": [{
             "key": "FFmpegExtractAudio",
             "preferredcodec": "mp3",
@@ -65,14 +67,23 @@ def download_to_mp3_by_query(query: str) -> str:
         "quiet": True,
         "no_warnings": True,
     }
-    with YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(query, download=True)
 
-        # Caso ytsearch não retorne resultados
+    with YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(query, download=False)
+
         if "entries" in info:
-            if not info["entries"]:
-                raise ValueError(f"Nenhum resultado encontrado no YouTube para: {query}")
-            info = info["entries"][0]
+            found = False
+            for entry in info["entries"]:
+                if not entry:
+                    continue
+                try:
+                    info = ydl.extract_info(entry["url"], download=True)
+                    found = True
+                    break
+                except Exception:
+                    continue
+            if not found:
+                raise ValueError(f"Nenhum vídeo público encontrado no YouTube para: {query}")
 
         base = ydl.prepare_filename(info)
         mp3_path = os.path.splitext(base)[0] + ".mp3"
