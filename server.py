@@ -8,12 +8,13 @@ from spotipy.oauth2 import SpotifyClientCredentials
 from yt_dlp import YoutubeDL
 from flask_cors import CORS
 
+# Carregar variáveis locais (para rodar localmente com .env)
 load_dotenv()
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-# Spotify auth (apenas para metadados via Client Credentials)
+# Spotify auth (Client Credentials flow)
 sp = Spotify(auth_manager=SpotifyClientCredentials(
     client_id=os.getenv("SPOTIFY_CLIENT_ID"),
     client_secret=os.getenv("SPOTIFY_CLIENT_SECRET")
@@ -22,7 +23,15 @@ sp = Spotify(auth_manager=SpotifyClientCredentials(
 def sanitize_filename(name: str) -> str:
     return re.sub(r'[\\/*?:"<>|]', '_', name)
 
+def normalize_spotify_url(spotify_url: str) -> str:
+    """
+    Remove prefixos de localização do Spotify, ex: /intl-pt/, /br/, /us/ etc.
+    """
+    return re.sub(r"open\.spotify\.com/[^/]+/track/", "open.spotify.com/track/", spotify_url)
+
 def get_track_info(spotify_url: str):
+    spotify_url = normalize_spotify_url(spotify_url)
+
     if "open.spotify.com/track/" in spotify_url:
         track_id = spotify_url.split("track/")[1].split("?")[0]
     else:
@@ -44,7 +53,11 @@ def download_to_mp3_by_query(query: str) -> str:
         "outtmpl": outtmpl,
         "noplaylist": True,
         "default_search": "ytsearch1",
-        "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}],
+        "postprocessors": [{
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "mp3",
+            "preferredquality": "192"
+        }],
         "quiet": True,
         "no_warnings": True,
     }
