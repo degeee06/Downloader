@@ -8,13 +8,13 @@ from spotipy.oauth2 import SpotifyClientCredentials
 from yt_dlp import YoutubeDL
 from flask_cors import CORS
 
-# Carregar variáveis locais (para rodar localmente com .env)
+# Carregar variáveis locais (.env)
 load_dotenv()
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-# Spotify auth (Client Credentials flow)
+# Spotify auth
 sp = Spotify(auth_manager=SpotifyClientCredentials(
     client_id=os.getenv("SPOTIFY_CLIENT_ID"),
     client_secret=os.getenv("SPOTIFY_CLIENT_SECRET")
@@ -25,22 +25,21 @@ def sanitize_filename(name: str) -> str:
 
 def normalize_spotify_url(spotify_url: str) -> str:
     """
-    Remove prefixos de localização do Spotify, ex: /intl-pt/, /br/, /us/ etc.
-    Ex: https://open.spotify.com/intl-pt/track/XYZ → https://open.spotify.com/track/XYZ
+    Remove prefixos regionais, ex: /intl-pt/, /br/, etc.
     """
     return re.sub(r"open\.spotify\.com/[^/]+/track/", "open.spotify.com/track/", spotify_url)
 
 def get_track_info(spotify_url: str):
     spotify_url = normalize_spotify_url(spotify_url)
 
-    # Extrair o track ID com regex
+    # Extrair o track_id com regex
     match = re.search(r"track/([A-Za-z0-9]+)", spotify_url)
     if not match:
         raise ValueError("Só aceito links de faixa do Spotify (open.spotify.com/track/...)")
 
     track_id = match.group(1)
 
-    # Buscar metadados no Spotify
+    # Buscar metadados
     t = sp.track(track_id)
     title = t.get("name", "Unknown Title")
     artists = ", ".join([a["name"] for a in t.get("artists", [])]) or "Unknown Artist"
@@ -68,8 +67,13 @@ def download_to_mp3_by_query(query: str) -> str:
     }
     with YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(query, download=True)
+
+        # Caso ytsearch não retorne resultados
         if "entries" in info:
+            if not info["entries"]:
+                raise ValueError(f"Nenhum resultado encontrado no YouTube para: {query}")
             info = info["entries"][0]
+
         base = ydl.prepare_filename(info)
         mp3_path = os.path.splitext(base)[0] + ".mp3"
         return mp3_path
