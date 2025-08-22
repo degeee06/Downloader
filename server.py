@@ -8,7 +8,6 @@ from spotipy.oauth2 import SpotifyClientCredentials
 from yt_dlp import YoutubeDL
 from flask_cors import CORS
 
-# Carregar variáveis locais (.env)
 load_dotenv()
 
 app = Flask(__name__)
@@ -23,90 +22,77 @@ sp = Spotify(auth_manager=SpotifyClientCredentials(
 def sanitize_filename(name: str) -> str:
     return re.sub(r'[\\/*?:"<>|]', '_', name)
 
-def normalize_spotify_url(spotify_url: str) -> str:
-    """
-    Remove prefixos regionais do Spotify, ex: /intl-pt/, /br/, etc.
-    """
-    return re.sub(r"open\.spotify\.com/[^/]+/track/", "open.spotify.com/track/", spotify_url)
-
 def get_track_info(spotify_url: str):
-    spotify_url = normalize_spotify_url(spotify_url)
-
-    # Extrair track_id com regex
-    match = re.search(r"track/([A-Za-z0-9]+)", spotify_url)
-    if not match:
+    if "open.spotify.com/track/" not in spotify_url:
         raise ValueError("Só aceito links de faixa do Spotify (open.spotify.com/track/...)")
 
-    track_id = match.group(1)
-
-    # Buscar metadados no Spotify
+    track_id = spotify_url.split("track/")[1].split("?")[0]
     t = sp.track(track_id)
-    title = t.get("name", "Unknown Title")
-    artists_list = [a["name"] for a in t.get("artists", [])]
-    artist = artists_list[0] if artists_list else "Unknown Artist"
-    album = t.get("album", {}).get("name", "Unknown Album")
-    images = t.get("album", {}).get("images", [])
-    cover = images[0]["url"] if images else None
-    duration_ms = t.get("duration_ms", 0)  # duração oficial em ms
-    query = f"{artist} - {title}"
+    title = t["name"]
+    artists = ", ".join([a["name"] for a in t["artists"]])
+    album = t["album"]["name"]
+    cover = t["album"]["images"][0]["url"] if t["album"]["images"] else None
+    query = f"{artists} - {title}"
+    duration_ms = t["duration_ms"]
     return {
         "title": title,
-        "artists": artist,
+        "artists": artists,
         "album": album,
         "cover": cover,
         "query": query,
-        "duration_ms": duration_ms
+        "duration": duration_ms // 1000
     }
 
-def download_to_mp3_by_query(query: str, duration_ms: int) -> str:
+def download_to_mp3_by_query(meta: dict) -> str:
     tempdir = tempfile.mkdtemp(prefix="ytmp3_")
     outtmpl = os.path.join(tempdir, "%(title)s.%(ext)s")
-    ydl_opts = {
-        "format": "bestaudio/best",
-        "outtmpl": outtmpl,
-        "noplaylist": True,
-        "default_search": "ytsearch10",  # busca até 10 resultados
-        "postprocessors": [{
-            "key": "FFmpegExtractAudio",
-            "preferredcodec": "mp3",
-            "preferredquality": "192"
-        }],
-        "quiet": True,
-        "no_warnings": True,
-    }
 
-    with YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(query, download=False)
+    # tenta múltiplos backends
+    search_queries = [
+        f"ytsearch10:{meta['query']}",          # YouTube normal
+        f"ytsearch10:{meta['query']} audio",    # YouTube forçando áudio
+        f"ytmusicsearch10:{meta['query']}",     # YouTube Music
+        f"scsearch10:{meta['query']}",          # SoundCloud
+        f"dzsearch10:{meta['query']}",          # Deezer (se disponível)
+    ]
 
-        # Se for uma lista de resultados, escolher o mais parecido com a duração
-        if "entries" in info:
-            best_match = None
-            best_diff = None
-            for entry in info["entries"]:
-                if not entry or "duration" not in entry:
-                    continue
-                yt_duration_ms = entry["duration"] * 1000
-                diff = abs(yt_duration_ms - duration_ms)
-                if best_match is None or diff < best_diff:
-                    best_match = entry
-                    best_diff = diff
+    for q in search_queries:
+        try:
+            ydl_opts = {
+                "format": "bestaudio/best",
+                "outtmpl": outtmpl,
+                "noplaylist": True,
+                "postprocessors": [{
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "mp3",
+                    "preferredquality": "192"
+                }],
+                "quiet": True,
+                "no_warnings": True,
+            }
+            with YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(q, download=True)
+                if "entries" in info:
+                    info = info["entries"][0]
 
-            if best_match:
-                info = ydl.extract_info(best_match["url"], download=True)
-            else:
-                raise ValueError(f"Nenhum vídeo público encontrado no YouTube para: {query}")
+                base = ydl.prepare_filename(info)
+                mp3_path = os.path.splitext(base)[0] + ".mp3"
 
-        base = ydl.prepare_filename(info)
-        mp3_path = os.path.splitext(base)[0] + ".mp3"
-        return mp3_path
+                # filtrar por duração (±10s)
+                if abs(info.get("duration", 0) - meta["duration"]) <= 10:
+                    return mp3_path
+                else:
+                    # mesmo fora da duração, retorna como fallback
+                    return mp3_path
+        except Exception as e:
+            print(f"[WARN] Falhou em {q}: {e}")
+            continue
+
+    raise Exception(f"Nenhum resultado encontrado em YouTube/SoundCloud/Deezer para: {meta['query']}")
 
 @app.get("/")
 def health():
-    return jsonify({
-        "ok": True,
-        "service": "oujey-downloader",
-        "endpoints": ["/api/preview", "/api/download"]
-    })
+    return jsonify({"ok": True, "service": "multi-downloader", "endpoints": ["/api/preview", "/api/download"]})
 
 @app.get("/api/preview")
 def preview():
@@ -126,14 +112,7 @@ def download():
         return jsonify({"error": "missing spotify_url"}), 400
     try:
         meta = get_track_info(spotify_url)
-
-        try:
-            # 1ª tentativa: artista + título
-            mp3_path = download_to_mp3_by_query(meta["query"], meta["duration_ms"])
-        except Exception:
-            # fallback: só título
-            mp3_path = download_to_mp3_by_query(meta["title"], meta["duration_ms"])
-
+        mp3_path = download_to_mp3_by_query(meta)
         filename = sanitize_filename(f'{meta["artists"]} - {meta["title"]}.mp3')
         return send_file(mp3_path, as_attachment=True, download_name=filename, mimetype="audio/mpeg")
     except Exception as e:
