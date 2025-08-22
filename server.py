@@ -1,6 +1,6 @@
 import os
 import re
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, redirect
 from dotenv import load_dotenv
 from spotipy import Spotify
 from spotipy.oauth2 import SpotifyClientCredentials
@@ -33,34 +33,43 @@ def get_track_info(spotify_url: str):
     t = sp.track(track_id)
     title = t["name"]
     artists = ", ".join([a["name"] for a in t["artists"]])
-    album = t["album"]["name"]
-    cover = t["album"]["images"][0]["url"] if t["album"]["images"] else None
     query = f"{artists} - {title}"
-    duration_ms = t["duration_ms"]
 
     return {
         "title": title,
         "artists": artists,
-        "album": album,
-        "cover": cover,
         "query": query,
-        "duration": duration_ms // 1000
     }
+
+def search_audio_source(meta: dict):
+    """Retorna apenas URL direto (não baixa)."""
+    search_queries = [
+        f"ytsearch1:{meta['query']}",
+        f"ytmusicsearch1:{meta['query']}",
+    ]
+    ydl_opts = {"format": "bestaudio/best", "noplaylist": True, "quiet": True}
+    with YoutubeDL(ydl_opts) as ydl:
+        for q in search_queries:
+            try:
+                info = ydl.extract_info(q, download=False)
+                if "entries" in info:
+                    info = info["entries"][0]
+                url = info.get("url")
+                if url:
+                    return {
+                        "title": info.get("title"),
+                        "webpage_url": info.get("webpage_url"),
+                        "direct_url": url,
+                        "duration": info.get("duration"),
+                    }
+            except Exception as e:
+                print(f"[WARN] Falhou em {q}: {e}")
+                continue
+    return None
 
 @app.get("/")
 def health():
-    return jsonify({"ok": True, "service": "spotify-linker", "endpoints": ["/api/preview", "/api/source"]})
-
-@app.get("/api/preview")
-def preview():
-    spotify_url = request.args.get("spotify_url", "")
-    if not spotify_url:
-        return jsonify({"error": "missing spotify_url"}), 400
-    try:
-        meta = get_track_info(spotify_url)
-        return jsonify(meta)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 400
+    return jsonify({"ok": True, "service": "spotify-linker", "endpoints": ["/api/source", "/api/direct"]})
 
 @app.get("/api/source")
 def source():
@@ -69,20 +78,24 @@ def source():
         return jsonify({"error": "missing spotify_url"}), 400
     try:
         meta = get_track_info(spotify_url)
-        ydl_opts = {"format": "bestaudio/best", "noplaylist": True, "quiet": True}
-        with YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"ytsearch1:{meta['query']}", download=False)
-            if "entries" in info:
-                info = info["entries"][0]
-            return jsonify({
-                "track": meta,
-                "source": {
-                    "title": info.get("title"),
-                    "webpage_url": info.get("webpage_url"),
-                    "direct_url": info.get("url"),  # link direto para streaming/download
-                    "duration": info.get("duration"),
-                }
-            })
+        source = search_audio_source(meta)
+        if not source:
+            return jsonify({"error": "nenhuma fonte encontrada"}), 404
+        return jsonify({"track": meta, "source": source})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+@app.get("/api/direct")
+def direct():
+    spotify_url = request.args.get("spotify_url", "")
+    if not spotify_url:
+        return jsonify({"error": "missing spotify_url"}), 400
+    try:
+        meta = get_track_info(spotify_url)
+        source = search_audio_source(meta)
+        if not source:
+            return jsonify({"error": "nenhuma fonte encontrada"}), 404
+        return redirect(source["direct_url"], code=302)
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 
