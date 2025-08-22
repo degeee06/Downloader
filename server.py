@@ -43,22 +43,29 @@ def get_track_info(spotify_url: str):
     t = sp.track(track_id)
     title = t.get("name", "Unknown Title")
     artists_list = [a["name"] for a in t.get("artists", [])]
-    # usa só o primeiro artista para melhorar busca no YouTube
     artist = artists_list[0] if artists_list else "Unknown Artist"
     album = t.get("album", {}).get("name", "Unknown Album")
     images = t.get("album", {}).get("images", [])
     cover = images[0]["url"] if images else None
+    duration_ms = t.get("duration_ms", 0)  # duração oficial em ms
     query = f"{artist} - {title}"
-    return {"title": title, "artists": artist, "album": album, "cover": cover, "query": query}
+    return {
+        "title": title,
+        "artists": artist,
+        "album": album,
+        "cover": cover,
+        "query": query,
+        "duration_ms": duration_ms
+    }
 
-def download_to_mp3_by_query(query: str) -> str:
+def download_to_mp3_by_query(query: str, duration_ms: int) -> str:
     tempdir = tempfile.mkdtemp(prefix="ytmp3_")
     outtmpl = os.path.join(tempdir, "%(title)s.%(ext)s")
     ydl_opts = {
         "format": "bestaudio/best",
         "outtmpl": outtmpl,
         "noplaylist": True,
-        "default_search": "ytsearch5",  # busca até 5 resultados
+        "default_search": "ytsearch10",  # busca até 10 resultados
         "postprocessors": [{
             "key": "FFmpegExtractAudio",
             "preferredcodec": "mp3",
@@ -71,18 +78,22 @@ def download_to_mp3_by_query(query: str) -> str:
     with YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(query, download=False)
 
+        # Se for uma lista de resultados, escolher o mais parecido com a duração
         if "entries" in info:
-            found = False
+            best_match = None
+            best_diff = None
             for entry in info["entries"]:
-                if not entry:
+                if not entry or "duration" not in entry:
                     continue
-                try:
-                    info = ydl.extract_info(entry["url"], download=True)
-                    found = True
-                    break
-                except Exception:
-                    continue
-            if not found:
+                yt_duration_ms = entry["duration"] * 1000
+                diff = abs(yt_duration_ms - duration_ms)
+                if best_match is None or diff < best_diff:
+                    best_match = entry
+                    best_diff = diff
+
+            if best_match:
+                info = ydl.extract_info(best_match["url"], download=True)
+            else:
                 raise ValueError(f"Nenhum vídeo público encontrado no YouTube para: {query}")
 
         base = ydl.prepare_filename(info)
@@ -115,7 +126,14 @@ def download():
         return jsonify({"error": "missing spotify_url"}), 400
     try:
         meta = get_track_info(spotify_url)
-        mp3_path = download_to_mp3_by_query(meta["query"])
+
+        try:
+            # 1ª tentativa: artista + título
+            mp3_path = download_to_mp3_by_query(meta["query"], meta["duration_ms"])
+        except Exception:
+            # fallback: só título
+            mp3_path = download_to_mp3_by_query(meta["title"], meta["duration_ms"])
+
         filename = sanitize_filename(f'{meta["artists"]} - {meta["title"]}.mp3')
         return send_file(mp3_path, as_attachment=True, download_name=filename, mimetype="audio/mpeg")
     except Exception as e:
