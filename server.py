@@ -23,10 +23,12 @@ def sanitize_filename(name: str) -> str:
     return re.sub(r'[\\/*?:"<>|]', '_', name)
 
 def get_track_info(spotify_url: str):
-    if "open.spotify.com/track/" not in spotify_url:
+    # Regex aceita tanto /track/ quanto /intl-xx/track/
+    match = re.search(r"track/([a-zA-Z0-9]+)", spotify_url)
+    if not match:
         raise ValueError("Só aceito links de faixa do Spotify (open.spotify.com/track/...)")
 
-    track_id = spotify_url.split("track/")[1].split("?")[0]
+    track_id = match.group(1)
     t = sp.track(track_id)
     title = t["name"]
     artists = ", ".join([a["name"] for a in t["artists"]])
@@ -34,6 +36,7 @@ def get_track_info(spotify_url: str):
     cover = t["album"]["images"][0]["url"] if t["album"]["images"] else None
     query = f"{artists} - {title}"
     duration_ms = t["duration_ms"]
+
     return {
         "title": title,
         "artists": artists,
@@ -121,3 +124,4 @@ def download():
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "5000"))
     app.run(host="0.0.0.0", port=port, debug=False)
+
