@@ -8,19 +8,22 @@ from spotipy.oauth2 import SpotifyClientCredentials
 from yt_dlp import YoutubeDL
 from flask_cors import CORS
 
-# carregar variáveis de ambiente
 load_dotenv()
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-# autenticação Spotify
+# Spotify auth
 sp = Spotify(auth_manager=SpotifyClientCredentials(
     client_id=os.getenv("SPOTIFY_CLIENT_ID"),
     client_secret=os.getenv("SPOTIFY_CLIENT_SECRET")
 ))
 
-# ----------------- UTILS -----------------
+# 🔹 Recria cookies.txt a partir da variável no Render
+if os.getenv("YOUTUBE_COOKIES"):
+    with open("cookies.txt", "w", encoding="utf-8") as f:
+        f.write(os.getenv("YOUTUBE_COOKIES"))
+
 
 def sanitize_url(spotify_url: str) -> str:
     """Normaliza links do Spotify (remove intl-xx/ e parâmetros)."""
@@ -28,11 +31,12 @@ def sanitize_url(spotify_url: str) -> str:
     clean_url = re.sub(r"open\.spotify\.com/intl-[a-z]{2}/track/", "open.spotify.com/track/", clean_url)
     return clean_url
 
+
 def sanitize_filename(name: str) -> str:
     return re.sub(r'[\\/*?:"<>|]', "_", name)
 
+
 def get_track_info(spotify_url: str):
-    """Busca informações de uma faixa no Spotify."""
     clean_url = sanitize_url(spotify_url)
     if "open.spotify.com/track/" not in clean_url:
         raise ValueError("Só aceito links de faixa do Spotify (open.spotify.com/track/...)")
@@ -55,8 +59,9 @@ def get_track_info(spotify_url: str):
         "duration": duration_ms // 1000
     }
 
+
 def search_audio_source(meta: dict):
-    """Procura uma fonte de áudio (URL direto)."""
+    """Retorna apenas URL direto (não baixa)."""
     search_queries = [
         f"ytsearch10:{meta['query']}",
         f"ytmusicsearch10:{meta['query']}",
@@ -67,7 +72,7 @@ def search_audio_source(meta: dict):
         "format": "bestaudio/best",
         "noplaylist": True,
         "quiet": True,
-        "cookiefile": "cookies.txt"  # usa cookies do YouTube
+        "cookiefile": "cookies.txt"
     }
     with YoutubeDL(ydl_opts) as ydl:
         for q in search_queries:
@@ -90,16 +95,16 @@ def search_audio_source(meta: dict):
                 continue
     return None
 
+
 def download_audio(meta: dict) -> str:
-    """Baixa e retorna caminho do MP3 usando cookies."""
+    """Baixa e retorna caminho do MP3."""
     tempdir = tempfile.mkdtemp(prefix="ytmp3_")
     outtmpl = os.path.join(tempdir, "%(title)s.%(ext)s")
-
     ydl_opts = {
         "format": "bestaudio/best",
         "outtmpl": outtmpl,
         "noplaylist": True,
-        "cookiefile": "cookies.txt",   # força login YouTube
+        "cookiefile": "cookies.txt",  # 🔹 força login
         "postprocessors": [{
             "key": "FFmpegExtractAudio",
             "preferredcodec": "mp3",
@@ -108,7 +113,6 @@ def download_audio(meta: dict) -> str:
         "quiet": True,
         "no_warnings": True,
     }
-
     with YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(f"ytsearch1:{meta['query']}", download=True)
         if "entries" in info:
@@ -117,11 +121,11 @@ def download_audio(meta: dict) -> str:
         mp3_path = os.path.splitext(base)[0] + ".mp3"
         return mp3_path
 
-# ----------------- ENDPOINTS -----------------
 
 @app.get("/")
 def health():
-    return jsonify({"ok": True, "service": "spotify-downloader", "endpoints": ["/api/preview", "/api/source", "/api/download"]})
+    return jsonify({"ok": True, "service": "spotify-linker", "endpoints": ["/api/preview", "/api/source", "/api/download"]})
+
 
 @app.get("/api/preview")
 def preview():
@@ -133,6 +137,7 @@ def preview():
         return jsonify(meta)
     except Exception as e:
         return jsonify({"error": str(e)}), 400
+
 
 @app.get("/api/source")
 def source():
@@ -148,6 +153,7 @@ def source():
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 
+
 @app.get("/api/download")
 def download():
     spotify_url = request.args.get("spotify_url", "")
@@ -161,7 +167,6 @@ def download():
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 
-# ----------------- MAIN -----------------
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "5000"))
