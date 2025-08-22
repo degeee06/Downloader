@@ -38,10 +38,11 @@ def get_track_info(spotify_url: str):
         raise ValueError("Só aceito links de faixa do Spotify (open.spotify.com/track/...)")
 
     t = sp.track(track_id)
-    title = t["name"]
-    artists = ", ".join([a["name"] for a in t["artists"]])
-    album = t["album"]["name"]
-    cover = t["album"]["images"][0]["url"] if t["album"]["images"] else None
+    title = t.get("name", "Unknown Title")
+    artists = ", ".join([a["name"] for a in t.get("artists", [])]) or "Unknown Artist"
+    album = t.get("album", {}).get("name", "Unknown Album")
+    images = t.get("album", {}).get("images", [])
+    cover = images[0]["url"] if images else None
     query = f"{artists} - {title}"
     return {"title": title, "artists": artists, "album": album, "cover": cover, "query": query}
 
@@ -100,3 +101,4 @@ def download():
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "5000"))
     app.run(host="0.0.0.0", port=port, debug=False)
+
