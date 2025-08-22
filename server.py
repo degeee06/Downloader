@@ -47,8 +47,13 @@ def get_track_info(spotify_url: str):
     }
 
 def get_direct_audio(meta: dict):
-    """Busca link direto (sem baixar no servidor)."""
-    ydl_opts = {"format": "bestaudio/best", "quiet": True}
+    """Busca link direto em m4a (sem baixar no servidor)."""
+    ydl_opts = {
+        "format": "bestaudio[ext=m4a]/bestaudio/best",
+        "quiet": True,
+        "noplaylist": True,
+        "extract_flat": False
+    }
     with YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(f"ytsearch1:{meta['query']}", download=False)
         if "entries" in info:
@@ -57,7 +62,7 @@ def get_direct_audio(meta: dict):
         return {
             "title": info.get("title"),
             "webpage_url": info.get("webpage_url"),
-            "direct_url": info.get("url"),
+            "direct_url": info.get("url"),   # 🔗 já vem m4a direto
             "duration": info.get("duration"),
             "extractor": info.get("extractor_key")
         }
