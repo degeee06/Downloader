@@ -26,17 +26,21 @@ def sanitize_filename(name: str) -> str:
 def normalize_spotify_url(spotify_url: str) -> str:
     """
     Remove prefixos de localização do Spotify, ex: /intl-pt/, /br/, /us/ etc.
+    Ex: https://open.spotify.com/intl-pt/track/XYZ → https://open.spotify.com/track/XYZ
     """
     return re.sub(r"open\.spotify\.com/[^/]+/track/", "open.spotify.com/track/", spotify_url)
 
 def get_track_info(spotify_url: str):
     spotify_url = normalize_spotify_url(spotify_url)
 
-    if "open.spotify.com/track/" in spotify_url:
-        track_id = spotify_url.split("track/")[1].split("?")[0]
-    else:
+    # Extrair o track ID com regex
+    match = re.search(r"track/([A-Za-z0-9]+)", spotify_url)
+    if not match:
         raise ValueError("Só aceito links de faixa do Spotify (open.spotify.com/track/...)")
 
+    track_id = match.group(1)
+
+    # Buscar metadados no Spotify
     t = sp.track(track_id)
     title = t.get("name", "Unknown Title")
     artists = ", ".join([a["name"] for a in t.get("artists", [])]) or "Unknown Artist"
@@ -72,7 +76,11 @@ def download_to_mp3_by_query(query: str) -> str:
 
 @app.get("/")
 def health():
-    return jsonify({"ok": True, "service": "oujey-downloader", "endpoints": ["/api/preview", "/api/download"]})
+    return jsonify({
+        "ok": True,
+        "service": "oujey-downloader",
+        "endpoints": ["/api/preview", "/api/download"]
+    })
 
 @app.get("/api/preview")
 def preview():
@@ -101,4 +109,3 @@ def download():
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "5000"))
     app.run(host="0.0.0.0", port=port, debug=False)
-
