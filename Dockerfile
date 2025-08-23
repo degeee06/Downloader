@@ -1,23 +1,25 @@
-# Usa uma imagem Python
-FROM python:3.11-slim
+# Usa Python 3.10
+FROM python:3.10-slim
 
-# Instala ffmpeg e dependências
+# Instala dependências do sistema (ffmpeg incluso)
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-# Cria pasta de trabalho
+# Define diretório de trabalho
 WORKDIR /app
 
-# Copia requirements e instala dependências do Python
+# Copia dependências primeiro (para cache eficiente)
 COPY requirements.txt .
+
+# Instala dependências do Python
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copia todo o código
+# Copia o restante dos arquivos do app
 COPY . .
 
-# Expõe a porta
+# Expõe a porta do Flask
 EXPOSE 5000
 
-# Comando para iniciar o servidor Flask
+# Comando para iniciar o servidor
 CMD ["python", "server.py"]
