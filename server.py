@@ -1,11 +1,10 @@
 import os
-import re
-import requests
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+import requests
 from dotenv import load_dotenv
 
-# Carregar variáveis de ambiente (.env no Render)
+# Carregar variáveis do .env
 load_dotenv()
 
 RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
@@ -13,67 +12,46 @@ RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
 app = Flask(__name__)
 CORS(app)
 
-# 🔹 Healthcheck
-@app.route("/", methods=["GET"])
+@app.route("/")
 def home():
-    return jsonify({"status": "server running"})
+    return "✅ API YouTube Downloader online"
 
-
-# 🔹 Extrair ID do vídeo (suporta url completa ou id)
-def extract_video_id(url_or_id: str) -> str:
-    if re.match(r"^[a-zA-Z0-9_-]{11}$", url_or_id):
-        return url_or_id
-    match = re.search(r"(?:v=|youtu\.be/)([a-zA-Z0-9_-]{11})", url_or_id)
-    if match:
-        return match.group(1)
-    return None
-
-
-# 🔹 Rota para baixar/converter
-@app.route("/download", methods=["GET"])
+@app.route("/download")
 def download():
-    video_id = None
-
-    if "id" in request.args:
-        video_id = extract_video_id(request.args.get("id"))
-    elif "url" in request.args:
-        video_id = extract_video_id(request.args.get("url"))
-
+    video_id = request.args.get("id")
     if not video_id:
-        return jsonify({"error": "Passe ?id=VIDEO_ID ou ?url=YOUTUBE_URL"}), 400
+        return jsonify({"error": "missing id"}), 400
 
     url = "https://youtube-media-downloader.p.rapidapi.com/v2/video/details"
-    querystring = {"videoId": video_id}
+    querystring = {
+        "videoId": video_id,
+        "urlAccess": "normal",
+        "videos": "auto",
+        "audios": "auto"
+    }
     headers = {
-        "x-rapidapi-host": "youtube-media-downloader.p.rapidapi.com",
         "x-rapidapi-key": RAPIDAPI_KEY,
+        "x-rapidapi-host": "youtube-media-downloader.p.rapidapi.com"
     }
 
     try:
         response = requests.get(url, headers=headers, params=querystring)
         data = response.json()
 
-        # Essa API retorna várias opções (vídeo/áudio)
-        audio_links = [
-            stream for stream in data.get("links", []) if stream.get("type") == "audio"
-        ]
-
-        if not audio_links:
-            return jsonify({"error": "Nenhum link de áudio encontrado", "raw": data}), 404
-
-        # pega o primeiro mp3 disponível
-        mp3 = next((a for a in audio_links if "mp3" in a.get("quality", "").lower()), audio_links[0])
+        # Pegar o primeiro áudio
+        audio_url = data["audios"][0]["url"]
 
         return jsonify({
-            "status": "ok",
+            "videoId": video_id,
             "title": data.get("title"),
-            "thumbnail": data.get("thumbnails", [{}])[-1].get("url"),
-            "id": video_id,
-            "link": mp3.get("url")
+            "audio_url": audio_url
         })
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({
+            "error": str(e),
+            "raw_response": response.text if 'response' in locals() else None
+        }), 500
 
 
 if __name__ == "__main__":
