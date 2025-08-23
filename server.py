@@ -14,7 +14,6 @@ RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
 
 def extract_video_id(url: str) -> str:
     """Extrai video_id de links do YouTube."""
-    # formatos aceitos: youtu.be/XXXX, youtube.com/watch?v=XXXX
     patterns = [
         r"(?:v=|youtu\.be/)([a-zA-Z0-9_-]{11})"
     ]
@@ -54,6 +53,7 @@ def download():
     if data.get("status") != "ok":
         return jsonify({"error": "conversion failed", "data": data}), 500
 
+    # ✅ Só retorna o link pronto, quem baixa é o usuário
     return jsonify({
         "title": data.get("title"),
         "duration": data.get("duration"),
