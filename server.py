@@ -1,27 +1,20 @@
 import os
-from flask import Flask, request, jsonify
-from flask_cors import CORS
 import requests
-from dotenv import load_dotenv
-
-# Carregar variáveis do .env
-load_dotenv()
-
-RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
+from flask import Flask, request, jsonify
 
 app = Flask(__name__)
-CORS(app)
 
 @app.route("/")
 def home():
-    return "✅ API YouTube Downloader online"
+    return jsonify({"status": "server running"})
 
 @app.route("/download")
 def download():
     video_id = request.args.get("id")
     if not video_id:
-        return jsonify({"error": "missing id"}), 400
+        return jsonify({"error": "missing video id"}), 400
 
+    # Chamada para a API do RapidAPI
     url = "https://youtube-media-downloader.p.rapidapi.com/v2/video/details"
     querystring = {
         "videoId": video_id,
@@ -29,31 +22,27 @@ def download():
         "videos": "auto",
         "audios": "auto"
     }
+
     headers = {
-        "x-rapidapi-key": RAPIDAPI_KEY,
+        "x-rapidapi-key": os.getenv("RAPIDAPI_KEY"),
         "x-rapidapi-host": "youtube-media-downloader.p.rapidapi.com"
     }
 
     try:
-        response = requests.get(url, headers=headers, params=querystring)
+        response = requests.get(url, headers=headers, params=querystring, timeout=15)
         data = response.json()
-
-        # Pegar o primeiro áudio
-        audio_url = data["audios"][0]["url"]
-
-        return jsonify({
-            "videoId": video_id,
-            "title": data.get("title"),
-            "audio_url": audio_url
-        })
-
     except Exception as e:
-        return jsonify({
-            "error": str(e),
-            "raw_response": response.text if 'response' in locals() else None
-        }), 500
+        return jsonify({"error": str(e)}), 500
 
+    # Pegar o primeiro link de áudio disponível
+    audio_url = None
+    if "audios" in data and isinstance(data["audios"], list) and len(data["audios"]) > 0:
+        audio_url = data["audios"][0].get("url")
+
+    return jsonify({
+        "title": data.get("title"),
+        "audio_url": audio_url
+    })
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
