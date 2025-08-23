@@ -4,4 +4,4 @@ python-dotenv
 spotipy
 yt-dlp
 requests
-pyngrok
+gunicorn
