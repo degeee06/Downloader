@@ -52,7 +52,8 @@ def get_direct_audio(meta: dict):
         "format": "bestaudio[ext=m4a]/bestaudio/best",
         "quiet": True,
         "noplaylist": True,
-        "extract_flat": False
+        "extract_flat": False,
+        "cookiefile": "cookies.txt"   # 🔑 usa cookies locais do repositório
     }
     with YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(f"ytsearch1:{meta['query']}", download=False)
@@ -62,7 +63,7 @@ def get_direct_audio(meta: dict):
         return {
             "title": info.get("title"),
             "webpage_url": info.get("webpage_url"),
-            "direct_url": info.get("url"),   # 🔗 já vem m4a direto
+            "direct_url": info.get("url"),
             "duration": info.get("duration"),
             "extractor": info.get("extractor_key")
         }
