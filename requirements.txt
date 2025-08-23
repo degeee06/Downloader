@@ -1,4 +1,7 @@
 flask
 flask-cors
+python-dotenv
+spotipy
+yt-dlp
 requests
-gunicorn
+pyngrok
