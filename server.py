@@ -1,6 +1,7 @@
 import os
+import re
 import requests
-from flask import Flask, request, jsonify, redirect
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
 
@@ -11,15 +12,31 @@ CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
 
+def extract_video_id(url: str) -> str:
+    """Extrai video_id de links do YouTube."""
+    # formatos aceitos: youtu.be/XXXX, youtube.com/watch?v=XXXX
+    patterns = [
+        r"(?:v=|youtu\.be/)([a-zA-Z0-9_-]{11})"
+    ]
+    for p in patterns:
+        match = re.search(p, url)
+        if match:
+            return match.group(1)
+    return None
+
 @app.get("/")
 def health():
-    return jsonify({"ok": True, "service": "youtube-mp3", "endpoint": "/api/download?video_id="})
+    return jsonify({"ok": True, "service": "youtube-mp3", "endpoint": "/api/download?youtube_url="})
 
 @app.get("/api/download")
 def download():
-    video_id = request.args.get("video_id")
+    youtube_url = request.args.get("youtube_url")
+    if not youtube_url:
+        return jsonify({"error": "missing youtube_url"}), 400
+
+    video_id = extract_video_id(youtube_url)
     if not video_id:
-        return jsonify({"error": "missing video_id"}), 400
+        return jsonify({"error": "invalid youtube url"}), 400
 
     url = "https://youtube-mp36.p.rapidapi.com/dl"
     headers = {
@@ -37,7 +54,6 @@ def download():
     if data.get("status") != "ok":
         return jsonify({"error": "conversion failed", "data": data}), 500
 
-    # 🔗 retorna o link do MP3 pronto
     return jsonify({
         "title": data.get("title"),
         "duration": data.get("duration"),
