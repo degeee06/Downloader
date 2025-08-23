@@ -1,8 +1,10 @@
 import os
 import requests
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app)  # liberar CORS
 
 @app.route("/")
 def home():
@@ -14,7 +16,6 @@ def download():
     if not video_id:
         return jsonify({"error": "missing video id"}), 400
 
-    # Chamada para a API do RapidAPI
     url = "https://youtube-media-downloader.p.rapidapi.com/v2/video/details"
     querystring = {
         "videoId": video_id,
@@ -34,7 +35,6 @@ def download():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-    # Pegar o primeiro link de áudio disponível
     audio_url = None
     if "audios" in data and isinstance(data["audios"], list) and len(data["audios"]) > 0:
         audio_url = data["audios"][0].get("url")
