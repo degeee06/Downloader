@@ -13,13 +13,13 @@ RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
 app = Flask(__name__)
 CORS(app)
 
-# 🔹 Rota inicial para health check
+# 🔹 Healthcheck
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({"status": "server running"})
 
 
-# 🔹 Extrair ID do vídeo (aceita url ou id)
+# 🔹 Extrair ID do vídeo (suporta url completa ou id)
 def extract_video_id(url_or_id: str) -> str:
     if re.match(r"^[a-zA-Z0-9_-]{11}$", url_or_id):
         return url_or_id
@@ -52,7 +52,8 @@ def download():
     try:
         response = requests.get(url, headers=headers, params=querystring)
         data = response.json()
-        # 👇 Essa API retorna várias opções de stream (mp4, mp3, etc)
+
+        # Essa API retorna várias opções (vídeo/áudio)
         audio_links = [
             stream for stream in data.get("links", []) if stream.get("type") == "audio"
         ]
@@ -60,7 +61,7 @@ def download():
         if not audio_links:
             return jsonify({"error": "Nenhum link de áudio encontrado", "raw": data}), 404
 
-        # pegar o primeiro mp3 disponível
+        # pega o primeiro mp3 disponível
         mp3 = next((a for a in audio_links if "mp3" in a.get("quality", "").lower()), audio_links[0])
 
         return jsonify({
