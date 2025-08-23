@@ -19,12 +19,10 @@ def home():
     return jsonify({"status": "server running"})
 
 
-# 🔹 Extrair ID do vídeo (se for URL completa ou só id)
+# 🔹 Extrair ID do vídeo (aceita url ou id)
 def extract_video_id(url_or_id: str) -> str:
-    # Se for só id
     if re.match(r"^[a-zA-Z0-9_-]{11}$", url_or_id):
         return url_or_id
-    # Se for URL do YouTube
     match = re.search(r"(?:v=|youtu\.be/)([a-zA-Z0-9_-]{11})", url_or_id)
     if match:
         return match.group(1)
@@ -36,36 +34,41 @@ def extract_video_id(url_or_id: str) -> str:
 def download():
     video_id = None
 
-    # Pode vir como ?id= ou ?url=
     if "id" in request.args:
         video_id = extract_video_id(request.args.get("id"))
     elif "url" in request.args:
         video_id = extract_video_id(request.args.get("url"))
 
     if not video_id:
-        return jsonify({"error": "É necessário passar ?id=VIDEO_ID ou ?url=YOUTUBE_URL"}), 400
+        return jsonify({"error": "Passe ?id=VIDEO_ID ou ?url=YOUTUBE_URL"}), 400
 
-    url = "https://youtube-mp36.p.rapidapi.com/dl"
-    querystring = {"id": video_id}
+    url = "https://youtube-media-downloader.p.rapidapi.com/v2/video/details"
+    querystring = {"videoId": video_id}
     headers = {
-        "x-rapidapi-host": "youtube-mp36.p.rapidapi.com",
+        "x-rapidapi-host": "youtube-media-downloader.p.rapidapi.com",
         "x-rapidapi-key": RAPIDAPI_KEY,
     }
 
     try:
         response = requests.get(url, headers=headers, params=querystring)
         data = response.json()
+        # 👇 Essa API retorna várias opções de stream (mp4, mp3, etc)
+        audio_links = [
+            stream for stream in data.get("links", []) if stream.get("type") == "audio"
+        ]
 
-        # Garantir resposta padronizada
-        if data.get("status") != "ok":
-            return jsonify({"error": "Falha ao converter vídeo", "details": data}), 500
+        if not audio_links:
+            return jsonify({"error": "Nenhum link de áudio encontrado", "raw": data}), 404
+
+        # pegar o primeiro mp3 disponível
+        mp3 = next((a for a in audio_links if "mp3" in a.get("quality", "").lower()), audio_links[0])
 
         return jsonify({
             "status": "ok",
             "title": data.get("title"),
-            "link": data.get("link"),
+            "thumbnail": data.get("thumbnails", [{}])[-1].get("url"),
             "id": video_id,
-            "thumbnail": f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg"
+            "link": mp3.get("url")
         })
 
     except Exception as e:
