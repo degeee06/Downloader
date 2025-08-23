@@ -1,10 +1,10 @@
 import os
 import re
-from flask import Flask, request, jsonify
+import requests
+from flask import Flask, request, jsonify, redirect
 from dotenv import load_dotenv
 from spotipy import Spotify
 from spotipy.oauth2 import SpotifyClientCredentials
-from yt_dlp import YoutubeDL
 from flask_cors import CORS
 
 load_dotenv()
@@ -46,31 +46,38 @@ def get_track_info(spotify_url: str):
         "duration": t["duration_ms"] // 1000
     }
 
-def get_direct_audio(meta: dict):
-    """Busca link direto em m4a (sem baixar no servidor)."""
-    ydl_opts = {
-        "format": "bestaudio[ext=m4a]/bestaudio/best",
-        "quiet": True,
-        "noplaylist": True,
-        "extract_flat": False,
-        "cookiefile": "cookies.txt"   # 🔑 usa cookies locais do repositório
+def get_mp3_link(query: str):
+    """Chama a API RapidAPI YouTube MP36 para pegar MP3 pronto."""
+    url = "https://youtube-mp36.p.rapidapi.com/dl"
+    headers = {
+        "X-RapidAPI-Key": os.getenv("RAPIDAPI_KEY"),
+        "X-RapidAPI-Host": "youtube-mp36.p.rapidapi.com"
     }
-    with YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(f"ytsearch1:{meta['query']}", download=False)
-        if "entries" in info:
-            info = info["entries"][0]
 
-        return {
-            "title": info.get("title"),
-            "webpage_url": info.get("webpage_url"),
-            "direct_url": info.get("url"),
-            "duration": info.get("duration"),
-            "extractor": info.get("extractor_key")
-        }
+    # Aqui a API espera um YouTube ID, não o texto
+    # Então primeiro fazemos busca no YouTube
+    search_url = "https://www.googleapis.com/youtube/v3/search"
+    yt_key = os.getenv("YOUTUBE_API_KEY")  # precisa ativar YouTube Data API v3
+    params = {"part": "snippet", "q": query, "key": yt_key, "maxResults": 1, "type": "video"}
+    r = requests.get(search_url, params=params)
+    r.raise_for_status()
+    items = r.json().get("items", [])
+    if not items:
+        raise ValueError("Nenhum vídeo encontrado para a música")
+
+    video_id = items[0]["id"]["videoId"]
+
+    # Agora chamamos o RapidAPI
+    r = requests.get(url, headers=headers, params={"id": video_id})
+    r.raise_for_status()
+    data = r.json()
+    if data.get("status") != "ok":
+        raise ValueError("Erro ao converter para MP3")
+    return data
 
 @app.get("/")
 def health():
-    return jsonify({"ok": True, "service": "spotify-proxy", "endpoints": ["/api/preview", "/api/source"]})
+    return jsonify({"ok": True, "service": "spotify-mp3", "endpoints": ["/api/preview", "/api/download"]})
 
 @app.get("/api/preview")
 def preview():
@@ -83,15 +90,15 @@ def preview():
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 
-@app.get("/api/source")
-def source():
+@app.get("/api/download")
+def download():
     spotify_url = request.args.get("spotify_url", "")
     if not spotify_url:
         return jsonify({"error": "missing spotify_url"}), 400
     try:
         meta = get_track_info(spotify_url)
-        audio = get_direct_audio(meta)
-        return jsonify({"track": meta, "audio": audio})
+        mp3_data = get_mp3_link(meta["query"])
+        return redirect(mp3_data["link"])  # 🔥 redireciona direto pro MP3 pronto
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 
