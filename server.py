@@ -46,20 +46,24 @@ def download():
 
     r = requests.get(url, headers=headers, params=query)
 
-    if r.status_code != 200:
-        return jsonify({"error": "API request failed", "status": r.status_code}), 500
-
+try:
     data = r.json()
-    if data.get("status") != "ok":
-        return jsonify({"error": "conversion failed", "data": data}), 500
+except Exception:
+    return jsonify({"error": "Invalid JSON", "response": r.text, "status": r.status_code}), 500
 
-    # ✅ Só retorna o link pronto, quem baixa é o usuário
-    return jsonify({
-        "title": data.get("title"),
-        "duration": data.get("duration"),
-        "download_url": data.get("link")
-    })
+if r.status_code != 200:
+    return jsonify({"error": "API request failed", "status": r.status_code, "response": data}), 500
+
+if data.get("status") != "ok":
+    return jsonify({"error": "conversion failed", "data": data}), 500
+
+return jsonify({
+    "title": data.get("title"),
+    "duration": data.get("duration"),
+    "download_url": data.get("link")
+})
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
+
