@@ -8,6 +8,8 @@ from spotipy import Spotify
 from spotipy.oauth2 import SpotifyClientCredentials
 from yt_dlp import YoutubeDL
 from flask_cors import CORS
+from mutagen.id3 import ID3, TIT2, TPE1, TALB, APIC, ID3NoHeaderError
+from mutagen.mp3 import MP3
 import requests
 
 load_dotenv()
@@ -93,6 +95,63 @@ def preview():
         return jsonify(meta)
     except Exception as e:
         return jsonify({"error": str(e)}), 400
+def get_track_info(spotify_url: str):
+    spotify_url = normalize_spotify_url(spotify_url)
+
+    if "open.spotify.com/track/" not in spotify_url:
+        raise ValueError("Só aceito links de faixa do Spotify (open.spotify.com/track/...)")
+
+    track_id = spotify_url.split("track/")[1].split("?")[0]
+    t = sp.track(track_id)
+    title = t["name"]
+    artists = ", ".join([a["name"] for a in t["artists"]])
+    album = t["album"]["name"]
+
+    # 🔹 pega a menor capa (normalmente 300x300)
+    cover = None
+    if t["album"]["images"]:
+        cover = sorted(t["album"]["images"], key=lambda x: x["width"])[0]["url"]
+
+    query = f"{artists} - {title}"
+    return {"title": title, "artists": artists, "album": album, "cover": cover, "query": query}
+
+
+def add_id3_tags(mp3_path, meta):
+    try:
+        audio = MP3(mp3_path, ID3=ID3)
+        try:
+            audio.add_tags()
+        except ID3NoHeaderError:
+            pass
+
+        # 🔹 limpa sempre as tags antigas
+        audio.tags.clear()
+
+        # 🔹 adiciona título
+        audio.tags.add(TIT2(encoding=3, text=meta["title"]))
+        # 🔹 adiciona artista(s)
+        audio.tags.add(TPE1(encoding=3, text=meta["artists"]))
+        # 🔹 adiciona álbum
+        audio.tags.add(TALB(encoding=3, text=meta["album"]))
+
+        # 🔹 adiciona a capa SEMPRE
+        if meta.get("cover"):
+            try:
+                img_data = requests.get(meta["cover"], timeout=10).content
+                audio.tags.add(APIC(
+                    encoding=3,
+                    mime="image/jpeg",
+                    type=3,             # capa frontal
+                    desc="Cover",
+                    data=img_data
+                ))
+            except Exception as e:
+                print("⚠️ Erro ao baixar capa:", e)
+
+        # 🔹 salva em ID3v2.3 (compatível com todos players)
+        audio.save(v2_version=3)
+    except Exception as e:
+        print("⚠️ Erro ao adicionar tags:", e)
 
 @app.get("/api/download")
 def download():
@@ -125,6 +184,7 @@ if __name__ == "__main__":
             print("⚠️ Ngrok não inicializado:", e)
 
     app.run(host="0.0.0.0", port=port, debug=False)
+
 
 
 
