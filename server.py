@@ -10,7 +10,6 @@ from yt_dlp import YoutubeDL
 from flask_cors import CORS
 from mutagen.id3 import ID3, TIT2, TPE1, TALB, APIC, ID3NoHeaderError
 from mutagen.mp3 import MP3
-import requests
 
 load_dotenv()
 
@@ -56,7 +55,12 @@ def get_track_info(spotify_url: str):
     title = t["name"]
     artists = ", ".join([a["name"] for a in t["artists"]])
     album = t["album"]["name"]
-    cover = t["album"]["images"][0]["url"] if t["album"]["images"] else None
+
+    # 🔹 pega a menor capa (normalmente 300x300)
+    cover = None
+    if t["album"]["images"]:
+        cover = sorted(t["album"]["images"], key=lambda x: x["width"])[0]["url"]
+
     query = f"{artists} - {title}"
     return {"title": title, "artists": artists, "album": album, "cover": cover, "query": query}
 
@@ -79,42 +83,6 @@ def download_to_mp3_by_query(query: str) -> str:
         base = ydl.prepare_filename(info)
         mp3_path = os.path.splitext(base)[0] + ".mp3"
         return mp3_path
-
-
-@app.get("/")
-def health():
-    return jsonify({"ok": True, "service": "oujey-downloader", "endpoints": ["/api/preview", "/api/download"]})
-
-@app.get("/api/preview")
-def preview():
-    spotify_url = request.args.get("spotify_url", "")
-    if not spotify_url:
-        return jsonify({"error": "missing spotify_url"}), 400
-    try:
-        meta = get_track_info(spotify_url)
-        return jsonify(meta)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 400
-def get_track_info(spotify_url: str):
-    spotify_url = normalize_spotify_url(spotify_url)
-
-    if "open.spotify.com/track/" not in spotify_url:
-        raise ValueError("Só aceito links de faixa do Spotify (open.spotify.com/track/...)")
-
-    track_id = spotify_url.split("track/")[1].split("?")[0]
-    t = sp.track(track_id)
-    title = t["name"]
-    artists = ", ".join([a["name"] for a in t["artists"]])
-    album = t["album"]["name"]
-
-    # 🔹 pega a menor capa (normalmente 300x300)
-    cover = None
-    if t["album"]["images"]:
-        cover = sorted(t["album"]["images"], key=lambda x: x["width"])[0]["url"]
-
-    query = f"{artists} - {title}"
-    return {"title": title, "artists": artists, "album": album, "cover": cover, "query": query}
-
 
 def add_id3_tags(mp3_path, meta):
     try:
@@ -153,6 +121,21 @@ def add_id3_tags(mp3_path, meta):
     except Exception as e:
         print("⚠️ Erro ao adicionar tags:", e)
 
+@app.get("/")
+def health():
+    return jsonify({"ok": True, "service": "oujey-downloader", "endpoints": ["/api/preview", "/api/download"]})
+
+@app.get("/api/preview")
+def preview():
+    spotify_url = request.args.get("spotify_url", "")
+    if not spotify_url:
+        return jsonify({"error": "missing spotify_url"}), 400
+    try:
+        meta = get_track_info(spotify_url)
+        return jsonify(meta)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
 @app.get("/api/download")
 def download():
     spotify_url = request.args.get("spotify_url", "")
@@ -184,7 +167,3 @@ if __name__ == "__main__":
             print("⚠️ Ngrok não inicializado:", e)
 
     app.run(host="0.0.0.0", port=port, debug=False)
-
-
-
-
