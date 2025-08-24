@@ -8,6 +8,9 @@ from spotipy import Spotify
 from spotipy.oauth2 import SpotifyClientCredentials
 from yt_dlp import YoutubeDL
 from flask_cors import CORS
+from mutagen.id3 import ID3, TIT2, TPE1, TALB, APIC, ID3NoHeaderError
+from mutagen.mp3 import MP3
+import requests
 
 load_dotenv()
 
@@ -76,6 +79,38 @@ def download_to_mp3_by_query(query: str) -> str:
         base = ydl.prepare_filename(info)
         mp3_path = os.path.splitext(base)[0] + ".mp3"
         return mp3_path
+def add_id3_tags(mp3_path, meta):
+    try:
+        audio = MP3(mp3_path, ID3=ID3)
+        try:
+            audio.add_tags()
+        except ID3NoHeaderError:
+            pass
+
+        # Limpamos tags antigas
+        audio.tags.clear()
+
+        # Adiciona título
+        audio.tags.add(TIT2(encoding=3, text=meta["title"]))
+        # Adiciona artistas
+        audio.tags.add(TPE1(encoding=3, text=meta["artists"]))
+        # Adiciona álbum
+        audio.tags.add(TALB(encoding=3, text=meta["album"]))
+
+        # Adiciona capa (cover)
+        if meta.get("cover"):
+            img_data = requests.get(meta["cover"]).content
+            audio.tags.add(APIC(
+                encoding=3,
+                mime="image/jpeg",  # pode ser image/png dependendo da capa
+                type=3,             # 3 = capa frontal
+                desc="Cover",
+                data=img_data
+            ))
+
+        audio.save(v2_version=3)  # ID3v2.3 é o mais compatível
+    except Exception as e:
+        print("⚠️ Erro ao adicionar tags:", e)
 
 @app.get("/")
 def health():
@@ -100,6 +135,10 @@ def download():
     try:
         meta = get_track_info(spotify_url)
         mp3_path = download_to_mp3_by_query(meta["query"])
+
+        # 🔹 Aqui adiciona as tags ID3 + capa
+        add_id3_tags(mp3_path, meta)
+
         filename = sanitize_filename(f'{meta["artists"]} - {meta["title"]}.mp3')
         return send_file(mp3_path, as_attachment=True, download_name=filename, mimetype="audio/mpeg")
     except Exception as e:
@@ -119,3 +158,4 @@ if __name__ == "__main__":
             print("⚠️ Ngrok não inicializado:", e)
 
     app.run(host="0.0.0.0", port=port, debug=False)
+
