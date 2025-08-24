@@ -86,12 +86,12 @@ def download_to_mp3_by_query(query: str) -> str:
 def add_id3_tags(mp3_path, meta):
     try:
         audio = MP3(mp3_path, ID3=ID3)
-        try:
-            audio.add_tags()
-        except ID3NoHeaderError:
-            pass
 
-        # 🔹 limpa sempre as tags antigas
+        # 🔹 só cria tags se não existir
+        if audio.tags is None:
+            audio.add_tags()
+
+        # 🔹 limpa tags antigas
         audio.tags.clear()
 
         # 🔹 adiciona título
@@ -103,6 +103,7 @@ def add_id3_tags(mp3_path, meta):
 
         # 🔹 salva em ID3v2.3 (compatível com todos players)
         audio.save(v2_version=3)
+
     except Exception as e:
         print("⚠️ Erro ao adicionar tags:", e)
 
@@ -152,5 +153,6 @@ if __name__ == "__main__":
             print("⚠️ Ngrok não inicializado:", e)
 
     app.run(host="0.0.0.0", port=port, debug=False)
+
 
 
