@@ -79,38 +79,55 @@ def download_to_mp3_by_query(query: str) -> str:
         base = ydl.prepare_filename(info)
         mp3_path = os.path.splitext(base)[0] + ".mp3"
         return mp3_path
+
 def add_id3_tags(mp3_path, meta):
     try:
         audio = MP3(mp3_path, ID3=ID3)
+
         try:
             audio.add_tags()
         except ID3NoHeaderError:
             pass
 
-        # Limpamos tags antigas
+        # 🔹 Limpamos tags antigas pra evitar lixo
         audio.tags.clear()
 
-        # Adiciona título
-        audio.tags.add(TIT2(encoding=3, text=meta["title"]))
-        # Adiciona artistas
-        audio.tags.add(TPE1(encoding=3, text=meta["artists"]))
-        # Adiciona álbum
-        audio.tags.add(TALB(encoding=3, text=meta["album"]))
+        # 🔹 Título
+        audio.tags.add(TIT2(encoding=3, text=meta.get("title", "")))
+        # 🔹 Artistas
+        audio.tags.add(TPE1(encoding=3, text=meta.get("artists", "")))
+        # 🔹 Álbum
+        audio.tags.add(TALB(encoding=3, text=meta.get("album", "")))
 
-        # Adiciona capa (cover)
+        # 🔹 Capa (cover)
         if meta.get("cover"):
-            img_data = requests.get(meta["cover"]).content
-            audio.tags.add(APIC(
-                encoding=3,
-                mime="image/jpeg",  # pode ser image/png dependendo da capa
-                type=3,             # 3 = capa frontal
-                desc="Cover",
-                data=img_data
-            ))
+            try:
+                # Baixa a imagem em stream → mais leve que requests.get().content
+                with requests.get(meta["cover"], stream=True, timeout=10) as r:
+                    r.raise_for_status()
+                    img_data = r.content
 
-        audio.save(v2_version=3)  # ID3v2.3 é o mais compatível
+                # Detecta mime type (jpeg/png)
+                mime = "image/jpeg"
+                if meta["cover"].endswith(".png"):
+                    mime = "image/png"
+
+                audio.tags.add(APIC(
+                    encoding=3,
+                    mime=mime,
+                    type=3,      # 3 = capa frontal
+                    desc="Cover",
+                    data=img_data
+                ))
+            except Exception as e:
+                print(f"⚠️ Erro ao baixar capa: {e}")
+
+        # 🔹 Salva tags no formato mais compatível
+        audio.save(v2_version=3, v23_sep=' / ')
+
     except Exception as e:
         print("⚠️ Erro ao adicionar tags:", e)
+
 
 @app.get("/")
 def health():
@@ -158,4 +175,5 @@ if __name__ == "__main__":
             print("⚠️ Ngrok não inicializado:", e)
 
     app.run(host="0.0.0.0", port=port, debug=False)
+
 
