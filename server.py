@@ -10,7 +10,8 @@ from yt_dlp import YoutubeDL
 from flask_cors import CORS
 from mutagen.id3 import ID3, TIT2, TPE1, TALB, APIC, ID3NoHeaderError
 from mutagen.mp3 import MP3
-
+from io import BytesIO
+from PIL import Image
 load_dotenv()
 
 app = Flask(__name__)
@@ -102,19 +103,24 @@ def add_id3_tags(mp3_path, meta):
         # 🔹 adiciona álbum
         audio.tags.add(TALB(encoding=3, text=meta["album"]))
 
-        # 🔹 adiciona a capa SEMPRE
+        # 🔹 adiciona capa SEMPRE, convertida para JPEG
         if meta.get("cover"):
             try:
-                img_data = requests.get(meta["cover"], timeout=10).content
+                r = requests.get(meta["cover"], timeout=10)
+                img = Image.open(BytesIO(r.content)).convert("RGB")  # força RGB
+                buf = BytesIO()
+                img.save(buf, format="JPEG")  # converte sempre pra JPEG
+                img_data = buf.getvalue()
+
                 audio.tags.add(APIC(
                     encoding=3,
-                    mime="image/jpeg",
+                    mime="image/jpeg",  # agora é sempre JPEG real
                     type=3,             # capa frontal
                     desc="Cover",
                     data=img_data
                 ))
             except Exception as e:
-                print("⚠️ Erro ao baixar capa:", e)
+                print("⚠️ Erro ao processar capa:", e)
 
         # 🔹 salva em ID3v2.3 (compatível com todos players)
         audio.save(v2_version=3)
@@ -167,3 +173,4 @@ if __name__ == "__main__":
             print("⚠️ Ngrok não inicializado:", e)
 
     app.run(host="0.0.0.0", port=port, debug=False)
+
