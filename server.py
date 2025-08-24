@@ -8,8 +8,6 @@ from spotipy import Spotify
 from spotipy.oauth2 import SpotifyClientCredentials
 from yt_dlp import YoutubeDL
 from flask_cors import CORS
-from mutagen.id3 import ID3, TIT2, TPE1, TALB, APIC, ID3NoHeaderError
-from mutagen.mp3 import MP3
 import requests
 
 load_dotenv()
@@ -80,54 +78,6 @@ def download_to_mp3_by_query(query: str) -> str:
         mp3_path = os.path.splitext(base)[0] + ".mp3"
         return mp3_path
 
-def add_id3_tags(mp3_path, meta):
-    try:
-        audio = MP3(mp3_path, ID3=ID3)
-
-        try:
-            audio.add_tags()
-        except ID3NoHeaderError:
-            pass
-
-        # 🔹 Limpamos tags antigas pra evitar lixo
-        audio.tags.clear()
-
-        # 🔹 Título
-        audio.tags.add(TIT2(encoding=3, text=meta.get("title", "")))
-        # 🔹 Artistas
-        audio.tags.add(TPE1(encoding=3, text=meta.get("artists", "")))
-        # 🔹 Álbum
-        audio.tags.add(TALB(encoding=3, text=meta.get("album", "")))
-
-        # 🔹 Capa (cover)
-        if meta.get("cover"):
-            try:
-                # Baixa a imagem em stream → mais leve que requests.get().content
-                with requests.get(meta["cover"], stream=True, timeout=10) as r:
-                    r.raise_for_status()
-                    img_data = r.content
-
-                # Detecta mime type (jpeg/png)
-                mime = "image/jpeg"
-                if meta["cover"].endswith(".png"):
-                    mime = "image/png"
-
-                audio.tags.add(APIC(
-                    encoding=3,
-                    mime=mime,
-                    type=3,      # 3 = capa frontal
-                    desc="Cover",
-                    data=img_data
-                ))
-            except Exception as e:
-                print(f"⚠️ Erro ao baixar capa: {e}")
-
-        # 🔹 Salva tags no formato mais compatível
-        audio.save(v2_version=3, v23_sep=' / ')
-
-    except Exception as e:
-        print("⚠️ Erro ao adicionar tags:", e)
-
 
 @app.get("/")
 def health():
@@ -175,5 +125,6 @@ if __name__ == "__main__":
             print("⚠️ Ngrok não inicializado:", e)
 
     app.run(host="0.0.0.0", port=port, debug=False)
+
 
 
